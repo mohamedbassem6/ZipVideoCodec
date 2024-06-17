@@ -4,10 +4,10 @@ import numpy as np
 import os
 import cv2
 
-BLOCK_SIZE = 15
-FRAME_WIDTH = 1920
-FRAME_HEIGHT = 1080
-FPS = 24
+BLOCK_SIZE = 4
+FRAME_WIDTH = 1280
+FRAME_HEIGHT = 720
+FPS = 30
 
 color = [(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255), (255, 255, 255)]
 
@@ -41,9 +41,6 @@ def encode_octal_rgb(file_path, video_name):
     fourcc = cv2.VideoWriter_fourcc(*'avc1')
     video = cv2.VideoWriter(video_name, fourcc, FPS, (FRAME_WIDTH, FRAME_HEIGHT))
 
-
-
-
     file_bytes = read_file(file_path)
 
     frames_count = ceil((len(file_bytes) * 3) / (FRAME_WIDTH * FRAME_HEIGHT / (BLOCK_SIZE ** 2)))
@@ -56,7 +53,7 @@ def encode_octal_rgb(file_path, video_name):
     for byte in file_bytes:
         octal_byte = byte_to_octal(byte)
 
-        for nibble in octal_byte:
+        for digit in octal_byte:
             if i > FRAME_WIDTH - BLOCK_SIZE:
                 i = 0
                 j += BLOCK_SIZE
@@ -73,7 +70,7 @@ def encode_octal_rgb(file_path, video_name):
                 img = Image.new("RGB", (FRAME_WIDTH, FRAME_HEIGHT))
                 pixels = img.load()
 
-            color_value = color[ord(nibble) - ord('0')]
+            color_value = color[ord(digit) - ord('0')]
 
             for x in range(BLOCK_SIZE):
                 for y in range(BLOCK_SIZE):

@@ -1,11 +1,10 @@
 from PIL import Image
 from pathlib import Path
-import os
 import cv2
 
-ORIGINAL_WIDTH = 1920
-ORIGINAL_HEIGHT = 1080
-ORIGINAL_BLOCK_SIZE = 15
+ORIGINAL_WIDTH = 1280
+ORIGINAL_HEIGHT = 720
+BLOCK_SIZE = 4
 
 color_val = {
     (0, 0, 0): 0,
@@ -22,56 +21,42 @@ color_val = {
 def fix_color(color):
     red, green, blue = color
 
-    if red < 107:
+    if red < 128:
         red = 0
-    elif red > 148:
+    else:
         red = 255
-    else:
-        raise ValueError("RED: Data is Corrupted")
 
-    if green < 107:
+    if green < 128:
         green = 0
-    elif green > 148:
+    else:
         green = 255
-    else:
-        raise ValueError("GREEN: Data is Corrupted")
 
-    if blue < 107:
+    if blue < 128:
         blue = 0
-    elif blue > 148:
-        blue = 255
     else:
-        raise ValueError("BLUE: Data is Corrupted")
+        blue = 255
 
     return red, green, blue
 
 
-def get_color(pixels, i, j, size):
-    dx = [0, 1, 0, 1, -1, 0, -1, 1, -1]
-    dy = [0, 0, 1, 1, 0, -1, -1, -1, 1]
+def get_diff_color(color):
+    red, green, blue = color
+    return min(255 - red, red) + min(255 - green, green) + min(255 - blue, blue)
 
-    avg_red = 0
-    avg_green = 0
-    avg_blue = 0
 
-    avg_count = 9
-    for k in range(9):
-        x = i + dx[k]
-        y = j + dy[k]
+def get_color(pixels, i, j):
+    min_diff = 255 * 3
+    color = None
 
-        if x >= size[0] or y >= size[1] or x < 0 or y < 0:
-            avg_count -= 1
-            continue
+    for x in range(BLOCK_SIZE):
+        for y in range(BLOCK_SIZE):
+            diff = get_diff_color(pixels[i + x, j + y])
+            
+            if diff < min_diff:
+                min_diff = diff
+                color = pixels[i + x, j + y]
 
-        avg_red += pixels[x, y][0]
-        avg_green += pixels[x, y][1]
-        avg_blue += pixels[x, y][2]
-
-    avg_red = avg_red / avg_count
-    avg_green = avg_green / avg_count
-    avg_blue = avg_blue / avg_count
-
-    return fix_color((avg_red, avg_green, avg_blue))
+    return fix_color(color)
 
 
 def read_bytes(img: Image):
@@ -84,31 +69,18 @@ def read_bytes(img: Image):
     data = bytes([])  # Initialize an empty byte array to store the extracted data
     pixels = img.load()  # Load the pixels of the image
 
-    # img.show()
-
     width, height = img.size  # Get the width and height of the image
-
-    BLOCK_SIZE = width / (ORIGINAL_WIDTH / ORIGINAL_BLOCK_SIZE)  # Calculate the block size
 
     byte_data = ""  # Initialize an empty string to store the octal representation of the data
 
-    j = BLOCK_SIZE / 2  # Start from the center of the first block in the vertical direction
+    j = 0
     while j < height:
-        j_tmp = round(j) if round(j) < height else height - 1
-        i = (
-            BLOCK_SIZE / 2
-        )  # Start from the center of the first block in the horizontal direction
+        i = 0
 
         while i < width:
-            i_tmp = round(i) if round(i) < width else width - 1
+            color = get_color(pixels, i, j)
 
-            ref_pix = pixels[i_tmp, j_tmp]  # Get the color of the reference pixel
-            # color = fix_color(ref_pix)  # Fix the color if necessary
-            color = get_color(pixels, i_tmp, j_tmp, img.size)
-
-            byte_data += str(
-                color_val[color]
-            )  # Append the color value to the octal string
+            byte_data += str(color_val[color])  # Append the color value to the octal string
             if len(byte_data) == 3:
                 data += bytes([int(byte_data, 8)])
                 byte_data = ""  # Reset the octal string
@@ -151,4 +123,4 @@ def decode(video_path, destination_path):
         file.write(data)
 
 
-decode("/Users/mohamedbassem/Downloads/out15 24.mp4", "test.zip")
+decode("/Users/mohamedbassem/Downloads/out4 30 720.mp4", "test.zip")
