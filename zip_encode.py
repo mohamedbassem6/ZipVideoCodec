@@ -1,10 +1,13 @@
 from math import ceil
 from PIL import Image
+import numpy as np
 import os
+import cv2
 
-BLOCK_SIZE = 8
+BLOCK_SIZE = 15
 FRAME_WIDTH = 1920
 FRAME_HEIGHT = 1080
+FPS = 24
 
 color = [(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255), (255, 255, 255)]
 
@@ -34,7 +37,13 @@ def byte_to_octal(byte):
     return octal_string
 
 
-def encode_octal_rgb(file_path, dest_directory):
+def encode_octal_rgb(file_path, video_name):
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
+    video = cv2.VideoWriter(video_name, fourcc, FPS, (FRAME_WIDTH, FRAME_HEIGHT))
+
+
+
+
     file_bytes = read_file(file_path)
 
     frames_count = ceil((len(file_bytes) * 3) / (FRAME_WIDTH * FRAME_HEIGHT / (BLOCK_SIZE ** 2)))
@@ -56,7 +65,9 @@ def encode_octal_rgb(file_path, dest_directory):
                 j = 0
                 k += 1
 
-                img.save(os.path.join(dest_directory, f"{k}.png"))
+                # img.save(os.path.join(dest_directory, f"{k}.png"))
+                frame = np.array(img)
+                video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                 img.close()
 
                 img = Image.new("RGB", (FRAME_WIDTH, FRAME_HEIGHT))
@@ -69,5 +80,9 @@ def encode_octal_rgb(file_path, dest_directory):
                     pixels[i + x, j + y] = color_value
             i += BLOCK_SIZE
 
-    img.save(os.path.join(dest_directory, f"{k + 1}.png"))
+    # img.save(os.path.join(dest_directory, f"{k + 1}.png"))
+    frame = np.array(img)
+    video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
     img.close()
+    
+    video.release()
