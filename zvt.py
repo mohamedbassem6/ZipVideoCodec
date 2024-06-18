@@ -1,3 +1,4 @@
+from tqdm import tqdm
 from PIL import Image
 import numpy as np
 import cv2
@@ -29,6 +30,9 @@ class DecoderEngine():
         self.__cap = cv2.VideoCapture(video_path)
         self.__width = int(self.__cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.__height = int(self.__cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        self.__frames_count = int(self.__cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.__progress_bar = None
 
         if not self.__cap.isOpened():
             print("Error: Could not open video.")
@@ -88,6 +92,7 @@ class DecoderEngine():
 
                 byte_data += str(DecoderEngine.color_val[color])  # Append the color value to the octal string
                 if len(byte_data) == 3:
+                    self.__progress_bar.update(1)
                     data += bytes([int(byte_data, 8)])
                     byte_data = ""  # Reset the octal string
 
@@ -107,6 +112,9 @@ class DecoderEngine():
         The extracted data is then saved to the specified destination path.
         """
 
+        print()
+        self.__progress_bar = tqdm(total=(self.__frames_count * ((FRAME_HEIGHT * FRAME_WIDTH) / (BLOCK_SIZE ** 2)) / 3), desc="Decoding", unit="byte", unit_scale=True)
+        
         while True:
             ret, frame = self.__cap.read()
 
@@ -119,6 +127,9 @@ class DecoderEngine():
 
         with open(self.__destination_path, "wb") as file:
             file.write(self.__data)
+
+        self.__progress_bar.close()
+        print()
 
 
 class EncoderEngine():
@@ -154,8 +165,9 @@ class EncoderEngine():
     
 
     def encode(self):
+        print()
         i, j, k = 0, 0, 0
-        for byte in self.__file_bytes:
+        for byte in tqdm(self.__file_bytes, desc="Encoding", unit="byte", unit_scale=True):
             octal_byte = EncoderEngine.__byte_to_octal(byte)
 
             for digit in octal_byte:
@@ -187,3 +199,4 @@ class EncoderEngine():
         self.__img.close()
 
         self.__video.release()
+        print()
