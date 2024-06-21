@@ -1,5 +1,6 @@
 from tqdm import tqdm
 from PIL import Image
+from reedsolo import RSCodec, ReedSolomonError
 import numpy as np
 import cv2
 
@@ -8,6 +9,10 @@ FRAME_WIDTH = 1280
 FRAME_HEIGHT = 720
 FPS = 30
 BLOCK_SIZE = 4
+
+EC_BYTES = 6
+MSG_BYTES = 25
+RS = RSCodec(EC_BYTES)      # 15% error correction
 
 
 class DecoderEngine():
@@ -43,15 +48,32 @@ class DecoderEngine():
     def __fix_color(color):
         red, green, blue = color
 
-        red = 0 if red < 128 else 255
-        green = 0 if green < 128 else 255
-        blue = 0 if blue < 128 else 255
+        if red <= 85:
+            red = 0
+        elif red >= 172:
+            red = 255
+        else:
+            return None
+        
+        if green <= 85:
+            green = 0
+        elif green >= 172:
+            green = 255
+        else:
+            return None
+        
+        if blue <= 85:
+            blue = 0
+        elif blue >= 172:
+            blue = 255
+        else:
+            return None
 
         return red, green, blue
     
 
     @staticmethod
-    def __get_diff_color(color):
+    def __get_hamming_dist(color):
         red, green, blue = color
         return min(255 - red, red) + min(255 - green, green) + min(255 - blue, blue)
     
@@ -62,7 +84,7 @@ class DecoderEngine():
 
         for x in range(BLOCK_SIZE):
             for y in range(BLOCK_SIZE):
-                diff = self.__get_diff_color(pixels[i + x, j + y])
+                diff = self.__get_hamming_dist(pixels[i + x, j + y])
                 
                 if diff < min_diff:
                     min_diff = diff
@@ -82,19 +104,38 @@ class DecoderEngine():
         data = bytes()
 
         byte_data = ""
+        message = []
+        corrupted = False
 
         j = 0
         while j < self.__height:
-            i = 0
 
+            i = 0
             while i < self.__width:
                 color = self.__get_color(pixels, i, j)
+                if color is None:
+                    corrupted = True
+                    color = (0, 0, 0)
 
                 byte_data += str(DecoderEngine.color_val[color])  # Append the color value to the octal string
                 if len(byte_data) == 3:
                     self.__progress_bar.update(1)
-                    data += bytes([int(byte_data, 8)])
+
+                    message.append(int(byte_data, 8))
                     byte_data = ""  # Reset the octal string
+
+                if len(message) == MSG_BYTES:
+                    if corrupted:
+                        try:
+                            data += RS.decode(message)[0]
+                        except ReedSolomonError:
+                            print("Error: Data is corrupted, and can't be decoded.")
+                            exit()
+                    else:
+                        data += bytes(message[:MSG_BYTES - EC_BYTES])
+
+                    corrupted = False
+                    message = []
 
                 i += BLOCK_SIZE
 
@@ -125,6 +166,8 @@ class DecoderEngine():
             img = Image.fromarray(frame_rgb)
             self.__data += self.__read_bytes(img)
 
+        self.__cap.release()
+
         with open(self.__destination_path, "wb") as file:
             file.write(self.__data)
 
@@ -143,6 +186,8 @@ class EncoderEngine():
 
         self.__img = Image.new("RGB", (FRAME_WIDTH, FRAME_HEIGHT))
         self.__pixels = self.__img.load()
+
+        self.__progress_bar = None
 
 
     def __read_file(self, file_path):
@@ -166,33 +211,40 @@ class EncoderEngine():
 
     def encode(self):
         print()
+        self.__progress_bar = tqdm(total=len(self.__file_bytes) + (len(self.__file_bytes) * EC_BYTES / (MSG_BYTES - EC_BYTES)), desc="Encoding", unit="byte", unit_scale=True)
+        
         i, j, k = 0, 0, 0
-        for byte in tqdm(self.__file_bytes, desc="Encoding", unit="byte", unit_scale=True):
-            octal_byte = EncoderEngine.__byte_to_octal(byte)
+        for m in range(0, len(self.__file_bytes), MSG_BYTES - EC_BYTES):
+            data = self.__file_bytes[m:m + MSG_BYTES - EC_BYTES]
+            encoded_data = RS.encode(data)
 
-            for digit in octal_byte:
-                if i > FRAME_WIDTH - BLOCK_SIZE:
-                    i = 0
-                    j += BLOCK_SIZE
+            for byte in encoded_data:
+                self.__progress_bar.update(1)
 
-                if j > FRAME_HEIGHT - BLOCK_SIZE:
-                    j = 0
-                    k += 1
+                octal_byte = EncoderEngine.__byte_to_octal(byte)
+                for digit in octal_byte:
+                    if i > FRAME_WIDTH - BLOCK_SIZE:
+                        i = 0
+                        j += BLOCK_SIZE
 
-                    frame = np.array(self.__img)
-                    self.__video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                    self.__img.close()
+                    if j > FRAME_HEIGHT - BLOCK_SIZE:
+                        j = 0
+                        k += 1
 
-                    self.__img = Image.new("RGB", (FRAME_WIDTH, FRAME_HEIGHT))
-                    self.__pixels = self.__img.load()
+                        frame = np.array(self.__img)
+                        self.__video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                        self.__img.close()
 
-                color_value = EncoderEngine.color[ord(digit) - ord('0')]
+                        self.__img = Image.new("RGB", (FRAME_WIDTH, FRAME_HEIGHT))
+                        self.__pixels = self.__img.load()
 
-                for x in range(BLOCK_SIZE):
-                    for y in range(BLOCK_SIZE):
-                        self.__pixels[i + x, j + y] = color_value
-                        
-                i += BLOCK_SIZE
+                    color_value = EncoderEngine.color[ord(digit) - ord('0')]
+
+                    for x in range(BLOCK_SIZE):
+                        for y in range(BLOCK_SIZE):
+                            self.__pixels[i + x, j + y] = color_value
+                            
+                    i += BLOCK_SIZE
 
         frame = np.array(self.__img)
         self.__video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
